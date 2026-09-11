@@ -1,0 +1,443 @@
+{
+  "name": "Investment AI - AI Agent",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "clientes",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "58651af3-c3de-4a0a-ac0d-dc53b40b9ca5",
+      "name": "Webhook - Clientes",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -3936,
+        1328
+      ],
+      "webhookId": "5662479e-a1f0-44ad-81bf-2595c806c296"
+    },
+    {
+      "parameters": {
+        "url": "https://digitalinnovationone.github.io/dio-lab-assistente-investimentos-rpa-n8n/data.csv",
+        "options": {}
+      },
+      "id": "89dcee0d-71f7-4f49-8fc8-cf129acadf39",
+      "name": "HTTP - Catálogo",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -3936,
+        1584
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const text = $input.item.json.data || '';\nconst lines = text.split(/\\r?\\n/).filter(Boolean);\nif (!lines.length) return [];\n\nconst parseCsvLine = (line) => {\n  const out = [];\n  let value = '';\n  let quoted = false;\n  for (let i = 0; i < line.length; i++) {\n    const c = line[i];\n    if (c === '\"') quoted = !quoted;\n    else if (c === ',' && !quoted) {\n      out.push(value.trim().replace(/^\"|\"$/g, ''));\n      value = '';\n    } else value += c;\n  }\n  out.push(value.trim().replace(/^\"|\"$/g, ''));\n  return out;\n};\n\nconst headers = parseCsvLine(lines[0]);\nreturn lines.slice(1).map(line => {\n  const values = parseCsvLine(line);\n  const json = {};\n  headers.forEach((h, i) => json[h] = values[i] ?? '');\n  return { json };\n});"
+      },
+      "id": "a2e25042-8e03-4a05-aadf-c373be44af58",
+      "name": "Code - CSV",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -3696,
+        1584
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {}
+      },
+      "id": "4ee0b46b-8920-4826-9ea0-fcba2c49e54c",
+      "name": "Merge - Entrada",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        -3440,
+        1424
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst clientes = items.flatMap(i => {\n  const j = i.json || {};\n  return Array.isArray(j.clientes) ? j.clientes : (Array.isArray(j.body?.clientes) ? j.body.clientes : []);\n});\nconst investimentos = items.flatMap(i => {\n  const j = i.json || {};\n  if (Array.isArray(j.investimentos)) return j.investimentos;\n  if (j.produto) return [j];\n  return [];\n});\n\nconst fallback = [\n  { perfil: 'Conservador', produto: 'CDB Liquidez Diária', minimo: 'R$ 1.000,00', rentabilidade: '12,5%' },\n  { perfil: 'Moderado', produto: 'Fundos Imobiliários (FIIs)', minimo: 'R$ 5.000,00', rentabilidade: '9,8%' },\n  { perfil: 'Arrojado', produto: 'Ações e Criptomoedas', minimo: 'R$ 10.000,00', rentabilidade: '15,0%' }\n];\n\nconst catalogo = investimentos.length >= 3 ? investimentos : fallback;\n\nconst money = value => Number(String(value ?? '0')\n  .replace('R$', '').replace(/\\./g, '').replace(',', '.').trim()) || 0;\n\nreturn clientes.map(cliente => {\n  const saldo = money(cliente.saldo);\n  const opcoes = catalogo.filter(x => x.perfil === cliente.perfil);\n  const rec = opcoes.find(x => saldo >= money(x.minimo)) || opcoes[0] || fallback[0];\n\n  return {\n    json: {\n      cliente: {\n        nome: cliente.nome || 'Cliente',\n        email: cliente.email || '',\n        telegram_chat_id: cliente.telegram_chat_id || '',\n        perfil: cliente.perfil || 'Geral',\n        saldo: cliente.saldo || 'R$ 0,00',\n        saldo_num: saldo\n      },\n      recomendacao: rec,\n      regras: {\n        saldo_atende_minimo: saldo >= money(rec.minimo),\n        aviso: 'Conteúdo educacional. Não constitui recomendação financeira personalizada.'\n      }\n    }\n  };\n});"
+      },
+      "id": "637cf5b4-bef6-4f04-829e-5d5b3febf847",
+      "name": "Code - Motor de Recomendação",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -3200,
+        1424
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://feeds.bbci.co.uk/news/business/rss.xml",
+        "options": {}
+      },
+      "id": "b424c017-dce6-47e4-8c90-998cc9656e33",
+      "name": "HTTP - Notícias RSS",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -3200,
+        1696
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const xml = $input.item.json.data || '';\nconst matches = [...xml.matchAll(/<item>[\\s\\S]*?<\\/item>/gi)].slice(0, 5);\nconst noticias = matches.map(m => {\n  const item = m[0];\n  const get = tag => (item.match(new RegExp(`<${tag}[^>]*>([\\\\s\\\\S]*?)<\\\\/${tag}>`, 'i')) || [,''])[1]\n    .replace(/<!\\[CDATA\\[|\\]\\]>/g, '').replace(/<[^>]+>/g, '').trim();\n  return { titulo: get('title'), link: get('link'), data: get('pubDate') };\n});\nreturn [{ json: { noticias } }];"
+      },
+      "id": "7155455e-b52a-4720-abe2-b9e0568a6617",
+      "name": "Code - Normalizar Notícias",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2944,
+        1696
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {
+          "includeUnpaired": true
+        }
+      },
+      "id": "4734dd6d-88cd-49ed-9f10-de9a05da355c",
+      "name": "Merge - Contexto",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        -2944,
+        1424
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.item.json;\nconst noticias = Array.isArray(item.noticias) ? item.noticias : Array.isArray(item.contexto_noticias) ? item.contexto_noticias : [];\nconst contextoNoticias = noticias.length ? noticias.slice(0, 5).map(n => `- ${n.titulo || 'Sem título'} | ${n.link || ''} | ${n.data || ''}`).join('\\n') : 'Nenhuma notícia disponível.';\nconst cliente = item.cliente || {};\nconst recomendacao = item.recomendacao || {};\nconst prompt = `Você é um assistente de comunicação de investimentos.\\n\\nGere uma mensagem curta, clara e profissional para o cliente abaixo.\\n\\nREGRAS:\\n- Use SOMENTE os dados fornecidos.\\n- Não invente rentabilidade, valores, notícias ou fatos.\\n- Não transforme o texto em recomendação financeira personalizada.\\n- Explique a opção apresentada de forma educacional.\\n- Só mencione uma notícia se ela tiver relação evidente com o contexto.\\n- Não trate uma notícia como recomendação de compra ou venda.\\n- Não use markdown pesado.\\n- Responda apenas com a mensagem final em português do Brasil.\\n\\nCLIENTE:\\n${JSON.stringify(cliente)}\\n\\nOPÇÃO DO CATÁLOGO:\\n${JSON.stringify(recomendacao)}\\n\\nNOTÍCIAS DISPONÍVEIS:\\n${contextoNoticias}\\n\\nAVISO:\\n${item.regras?.aviso || 'Conteúdo educacional.'}`;\nreturn [{\n  json: { ...item, cliente, recomendacao, noticias, prompt, contexto_noticias: noticias }\n}];"
+      },
+      "id": "25bd3709-c7c8-49b4-b43f-073de89d14e0",
+      "name": "Code - Prompt IA",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2688,
+        1424
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.prompt }}",
+        "options": {}
+      },
+      "id": "5cb2bd31-9292-4d38-8c90-908ff85edbb6",
+      "name": "AI Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [
+        -2448,
+        1424
+      ]
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemini-2.5-flash-lite",
+        "options": {}
+      },
+      "id": "0d1a5ff9-f871-4774-a7e8-99fcd397590d",
+      "name": "Google Gemini Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        -2448,
+        1616
+      ],
+      "credentials": {
+        "googlePalmApi": {
+          "id": "PeD16CSx1xMrah4k",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const original = $('Code - Prompt IA').item.json;\nconst text = $json.output || $json.text || 'Não foi possível gerar a mensagem com IA nesta execução.';\n\nreturn [{\n  json: {\n    ok: true,\n    cliente: original.cliente,\n    recomendacao: original.recomendacao,\n    noticias: original.contexto_noticias || [],\n    mensagem: text,\n    canais: {\n      email: Boolean(original.cliente.email),\n      telegram: Boolean(original.cliente.telegram_chat_id)\n    },\n    aviso: original.regras.aviso\n  }\n}];"
+      },
+      "id": "6dc7c754-34ab-4f20-a1df-e9d08b1ce99a",
+      "name": "Code - Resultado",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2096,
+        1424
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { ok: true, total: $items('Code - Resultado').length, resultados: $items('Code - Resultado').map(i => i.json) } }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "ba897591-d363-4bf6-9e7f-a441b57cec82",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        -1792,
+        1424
+      ]
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $json.cliente.email }}",
+        "subject": "=Atualização de investimentos - {{ $json.cliente.nome }}",
+        "message": "={{ $json.mensagem + '\\n\\n' + $json.aviso }}",
+        "options": {}
+      },
+      "id": "73c81688-c1c5-47a2-b28d-2a0776d0eea0",
+      "name": "Gmail",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        -1792,
+        1216
+      ],
+      "webhookId": "8fbc39ec-c16c-40f0-9a4c-892d5570e7da",
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.cliente.telegram_chat_id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "isNotEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "6f92315d-9584-43e2-aab8-490b0031e093",
+      "name": "IF - Telegram habilitado",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -1792,
+        1616
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.cliente.telegram_chat_id }}",
+        "text": "={{ $json.mensagem }}",
+        "additionalFields": {}
+      },
+      "id": "e72395fd-2046-4d72-9923-dbbb8f17f1b1",
+      "name": "Telegram",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -1488,
+        1600
+      ],
+      "webhookId": "d448ec0a-4a37-4efc-ae6a-8b61d670722b",
+      "credentials": {
+        "telegramApi": {
+          "id": "ajZUeHeJXHCiZJzw",
+          "name": "Telegram account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook - Clientes": {
+      "main": [
+        [
+          {
+            "node": "Merge - Entrada",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "HTTP - Catálogo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Catálogo": {
+      "main": [
+        [
+          {
+            "node": "Code - CSV",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - CSV": {
+      "main": [
+        [
+          {
+            "node": "Merge - Entrada",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge - Entrada": {
+      "main": [
+        [
+          {
+            "node": "Code - Motor de Recomendação",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Motor de Recomendação": {
+      "main": [
+        [
+          {
+            "node": "Merge - Contexto",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Notícias RSS": {
+      "main": [
+        [
+          {
+            "node": "Code - Normalizar Notícias",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Normalizar Notícias": {
+      "main": [
+        [
+          {
+            "node": "Merge - Contexto",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge - Contexto": {
+      "main": [
+        [
+          {
+            "node": "Code - Prompt IA",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Prompt IA": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Code - Resultado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Resultado": {
+      "main": [
+        [
+          {
+            "node": "Gmail",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "IF - Telegram habilitado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Telegram habilitado": {
+      "main": [
+        [
+          {
+            "node": "Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "b192ad17-9175-4cc8-a1d9-b0b62121ea2c",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "a01ea3928a6c828a69cfb697f8f4b8acca97abc0bd70802d2b1eedc52ce47fce"
+  },
+  "id": "AjOAHg71ZFpFPZfB",
+  "tags": []
+}
