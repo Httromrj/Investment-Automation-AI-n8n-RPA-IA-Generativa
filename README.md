@@ -67,8 +67,8 @@ Webhook
 ```text
 dio-lab-assistente-investimentos-rpa-n8n/
 ├── README.md
-├── n8n/
-│   └── workflow-investment-ai-v2.json
+├── json/
+│   └── Investment AI - AI Agent.json
 ├── src/
 │   └── extrair_clientes.ipynb
 └── docs/
